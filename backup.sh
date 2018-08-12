@@ -1,86 +1,62 @@
-#!/bin/sh
-# https://github.com/dlabey/Simple-Linux-Bash-Rotating-Backup-Script
-# Local Source
-SOURCE=/full/path
+#!/bin/bash
+# based on https://github.com/dlabey/Simple-Linux-Bash-Rotating-Backup-Script
 
-# Local Destination
-DESTINATION=/full/path
+# init
+PRJ='Project'
+SOURCE='/full/path'
+DESTINATION='/full/path'
 
-# Database Backup User
-DATABASE=''
-DATABASE_USER=''
-DATABASE_PASSWORD=''
-DATABASE_HOST=''
-
-# DO NOT EDIT ANYTHING BELOW THIS
-
-# Date Variables
 DAY_OF_YEAR=$(date '+%j')
 DAY_OF_MONTH=$(date '+%d')
-DAY_OF_WEEK_RAW=$(date '+%w')
-DAY_OF_WEEK=$((DAY_OF_WEEK_RAW + 1))
+DAY_OF_WEEK=$(date '+%w')
+# start week on monday
+if [ $DAY_OF_WEEK -eq 0 ] ; then
+  DAY_OF_WEEK=7
+fi
 MONTH=$(date '+%m')
 YEAR=$(date '+%Y')
 
-# Make Temporary Folder
-mkdir `dirname $0`/tmp
-echo 'Made temporary folder...'
+TEMP='/tmp/backup'
+FILENAME=${PRJ}'-files_'${DAY_OF_WEEK}'.zip'
 
-# Make Weekly Folder
-mkdir `dirname $0`/tmp/weekly
-echo 'Made weekly folder...'
+# Make Temporary Folders
+mkdir ${TEMP}
+mkdir ${TEMP}/weekly
+mkdir ${TEMP}/${YEAR}
+mkdir ${TEMP}/${YEAR}/${MONTH}
+echo 'created temp folders'
 
-# Make Folder For Current Year
-mkdir `dirname $0`/tmp/${YEAR}
-echo 'Made folder for current year...'
+cd $SOURCE
+zip -q ${TEMP}/weekly/${FILENAME} * -x \*@Recycle\*
+echo 'Made daily backup...'
 
-# Make Folder For Current Month
-mkdir `dirname $0`/tmp/${YEAR}/$MONTH
-echo 'Made folder for current month...'
-
-# Make Biannual Folder For Current Year
-mkdir `dirname $0`/tmp/${YEAR}/biannual
-echo 'Made biannual folder for current year...'
-
-# Make The Weekly Backup
-tar -zcvf `dirname $0`/tmp/weekly/${DAY_OF_WEEK}_files.tar.gz $SOURCE
-mysqldump -h $DATABASE_HOST -u $DATABASE_USER -p$DATABASE_PASSWORD $DATABASE > `dirname $0`/${DAY_OF_WEEK}.sql
-tar -zcvf `dirname $0`/tmp/weekly/${DAY_OF_WEEK}_database.tar.gz `dirname $0`/${DAY_OF_WEEK}.sql
-rm -rf `dirname $0`/${DAY_OF_WEEK}.sql
-echo 'Made weekly backup...'
-
-# Check If It Is The 1st or 182nd Day Of The Year Then Make A Biannual Backup
-# If It Is By Copying The Weekly Backup To The Biannual Folder For The Current
-# Year
-if [ $DAY_OF_YEAR -eq 1 -o $DAY_OF_YEAR -eq 182 ] ; then
-    if [ $DAY_OF_YEAR -eq 1 ] ; then
-        cp `dirname $0`/tmp/weekly/${DAY_OF_WEEK}_files.tar.gz `dirname $0`/tmp/${YEAR}/biannual/01_files.tar.gz
-        cp `dirname $0`/tmp/weekly/${DAY_OF_WEEK}_database.tar.gz `dirname $0`/tmp/${YEAR}/biannual/01_database.tar.gz
-    fi
-    if [ $DAY_OF_YEAR -eq 182 ] ; then
-        cp `dirname $0`/tmp/weekly/${DAY_OF_WEEK}_files.tar.gz `dirname $0`/tmp/${YEAR}/biannual/02_files.tar.gz
-        cp `dirname $0`/tmp/weekly/${DAY_OF_WEEK}_database.tar.gz `dirname $0`/tmp/${YEAR}/biannual/02_database.tar.gz
-    fi
-    echo 'Made biannual backup...'
+# make quarter-yearly backup
+if [ $DAY_OF_MONTH -eq 1 ] ; then
+  if [ $MONTH -eq 1 -o $MONTH -eq 4 -o $MONTH -eq 7 -o $MONTH -eq 10 ] ; then
+    cp ${TEMP}/weekly/${FILENAME} ${TEMP}/${YEAR}/${PRJ}-files_${YEAR}-${MONTH}-${DAY_OF_MONTH}.zip
+    echo 'Made quarterly backup...'
+  fi
 fi
 
-# Check If It Is The 1st Or 14th Day Of The Month Then Make A Bimonthly Backup
-# If It Is By Copying The Weekly Backup To The Folder For The Current Month
-if [ $DAY_OF_MONTH -eq 1 -o $DAY_OF_MONTH -eq 14 ] ; then
-    if [ $DAY_OF_MONTH -eq 1 ] ; then
-        cp `dirname $0`/tmp/weekly/${DAY_OF_WEEK}_files.tar.gz `dirname $0`/tmp/${YEAR}/${MONTH}/01_files.tar.gz
-        cp `dirname $0`/tmp/weekly/${DAY_OF_WEEK}_database.tar.gz `dirname $0`/tmp/${YEAR}/${MONTH}/01_database.tar.gz
-    fi
-    if [ $DAY_OF_MONTH -eq 14 ] ; then
-        cp `dirname $0`/tmp/weekly/${DAY_OF_WEEK}_files.tar.gz `dirname $0`/tmp/${YEAR}/${MONTH}/02_files.tar.gz
-        cp `dirname $0`/tmp/weekly/${DAY_OF_WEEK}_database.tar.gz `dirname $0`/tmp/${YEAR}/${MONTH}/02_database.tar.gz
-    fi
-    echo 'Made monthly backup...'
+# make sunday backup
+if [ $DAY_OF_WEEK -eq 7 ] ; then
+    cp ${TEMP}/weekly/${FILENAME} ${TEMP}/${YEAR}/${MONTH}/${PRJ}-files_${YEAR}-${MONTH}-${DAY_OF_MONTH}.zip
+    echo 'Made sunday backup...'
 fi
 
 # Merge The Backup To The Local Destination's Backup Folder
-cp -rf `dirname $0`/tmp/* $DESTINATION
+cp -rf ${TEMP}/* $DESTINATION
 
 # Delete The Temporary Folder
-rm -rf `dirname $0`/tmp
-echo 'Made backup.'
+rm -rf ${TEMP}
+echo 'finished backup.'
+
+# on new year delete monthly backup-folders older than 2 years
+if [ $DAY_OF_MONTH -eq 1 ] ; then
+  if [ $MONTH -eq 1 ] ; then
+    LIMIT=$((2*365))
+    cd $DESTINATION
+    for dir in $(find . -maxdepth 2 -mindepth 2 -type d); do test $(find $dir -type f -mtime -$LIMIT -print -quit) || rm -rf $dir; done
+    echo 'deleted old backups'
+  fi
+fi
